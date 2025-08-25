@@ -67,4 +67,162 @@
   button:focus-visible{outline:3px solid var(--ring); outline-offset:2px}
   .secondary{ background:#fff; color:#111 }
 
-  .footer{ text-align:center; c
+  .footer{ text-align:center; color:#777; font-size:13px; padding:6px 12px 16px }
+  .error{
+    position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
+    background:#222; color:#fff; padding:10px 14px; border-radius:10px;
+    box-shadow:0 6px 24px rgba(0,0,0,.25); font-size:14px; z-index:50;
+    display:none;
+  }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <button id="flipBtn" title="Flip (Space/F)">Flip</button>
+  <div class="progress" id="progressText" aria-live="polite"></div>
+</div>
+
+<main class="stage">
+  <div class="frame" id="frame">
+    <div class="card" id="card">
+      <div class="face front"><img id="frontImg" alt="Front"></div>
+      <div class="face back"><img id="backImg" alt="Back"></div>
+    </div>
+    <button type="button" class="nav prev" id="prevBtn" aria-label="Prev">◀</button>
+    <button type="button" class="nav next" id="nextBtn" aria-label="Next">▶</button>
+  </div>
+</main>
+
+<div class="footer">Left/Right to change • Space/F or click card to flip • Swipe on mobile</div>
+<div class="error" id="errBox"></div>
+
+<script>
+  // --- CONFIG ---
+  const TOTAL_IMAGES = 22;                 // 01.jpg … 22.jpg
+  const TOTAL_CARDS  = Math.floor(TOTAL_IMAGES / 2);
+
+  // --- STATE ---
+  let cardIndex = 0;
+  let flipped   = false;
+
+  // --- ELs ---
+  const frame = document.getElementById('frame');
+  const card  = document.getElementById('card');
+  const frontImg = document.getElementById('frontImg');
+  const backImg  = document.getElementById('backImg');
+  const progressText = document.getElementById('progressText');
+  const errBox = document.getElementById('errBox');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const flipBtn = document.getElementById('flipBtn');
+
+  // --- HELPERS ---
+  const pad2   = n => String(n).padStart(2,'0');
+  const fileOf = n => `./${pad2(n)}.jpg`;   // explicit relative path
+
+  function imagesFor(i){
+    const f = i*2 + 1;
+    return { frontN: f, backN: Math.min(f+1, TOTAL_IMAGES) };
+  }
+
+  function showError(msg){
+    errBox.textContent = msg;
+    errBox.style.display = 'block';
+    clearTimeout(showError._t);
+    showError._t = setTimeout(()=> errBox.style.display = 'none', 3000);
+  }
+
+  // Fit frame aspect to image to avoid cropping
+  function setAspectFrom(img){
+    const apply = ()=>{
+      const w = img.naturalWidth||0, h = img.naturalHeight||0;
+      if (w && h) frame.style.aspectRatio = `${w} / ${h}`;
+    };
+    if (img.complete && img.naturalWidth) apply();
+    else img.addEventListener('load', apply, { once:true });
+  }
+
+  // Preload neighbors
+  function preloadAround(n){
+    for (let k=n-4; k<=n+6; k++){
+      if (k<1 || k>TOTAL_IMAGES) continue;
+      new Image().src = fileOf(k);
+    }
+  }
+
+  function updateUI(){
+    const { frontN, backN } = imagesFor(cardIndex);
+
+    // set srcs
+    frontImg.src = fileOf(frontN);
+    backImg.src  = fileOf(backN);
+
+    // error handlers
+    frontImg.onerror = () => showError(`Missing image: ${pad2(frontN)}.jpg`);
+    backImg.onerror  = () => showError(`Missing image: ${pad2(backN)}.jpg`);
+
+    setAspectFrom(frontImg);
+    card.classList.toggle('flipped', flipped);
+
+    const face = flipped ? 'Back' : 'Front';
+    progressText.textContent = `Card ${cardIndex+1} / ${TOTAL_CARDS} • ${face} (${pad2(flipped?backN:frontN)}.jpg)`;
+
+    preloadAround(frontN);
+  }
+
+  function flip(){
+    flipped = !flipped;
+    card.classList.toggle('flipped', flipped);
+    const { frontN, backN } = imagesFor(cardIndex);
+    progressText.textContent = `Card ${cardIndex+1} / ${TOTAL_CARDS} • ${flipped?'Back':'Front'} (${pad2(flipped?backN:frontN)}.jpg)`;
+  }
+
+  function goto(dir){
+    const next = cardIndex + dir;
+    if (next < 0 || next >= TOTAL_CARDS) return;
+    cardIndex = next; flipped = false;
+
+    // instant reset, then render
+    card.classList.add('no-anim');
+    card.classList.remove('flipped');
+    void card.offsetHeight;
+    updateUI();
+    requestAnimationFrame(()=> card.classList.remove('no-anim'));
+  }
+
+  // --- EVENTS ---
+  flipBtn.addEventListener('click', e => { e.stopPropagation(); flip(); });
+  prevBtn.addEventListener('click', e => { e.stopPropagation(); goto(-1); });
+  nextBtn.addEventListener('click', e => { e.stopPropagation(); goto(+1); });
+
+  // click card to flip (ignore when clicking buttons)
+  frame.addEventListener('click', e => {
+    if (e.target.closest('.nav') || e.target.closest('#flipBtn')) return;
+    flip();
+  });
+
+  // keyboard
+  window.addEventListener('keydown', e => {
+    if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
+    if (e.key === 'ArrowRight') goto(+1);
+    else if (e.key === 'ArrowLeft') goto(-1);
+    else if (e.code === 'Space' || (e.key && e.key.toLowerCase()==='f')) { e.preventDefault(); flip(); }
+  });
+
+  // swipe
+  let sx=0, sy=0, moved=false;
+  frame.addEventListener('pointerdown', e => { sx=e.clientX; sy=e.clientY; moved=false; frame.setPointerCapture(e.pointerId); });
+  frame.addEventListener('pointermove', e => { if (Math.abs(e.clientX-sx)>6 || Math.abs(e.clientY-sy)>6) moved=true; });
+  frame.addEventListener('pointerup', e => {
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) goto(dx<0 ? +1 : -1);
+    else if (!moved) flip();
+    frame.releasePointerCapture(e.pointerId);
+  });
+
+  // init
+  updateUI();
+</script>
+</body>
+</html>
