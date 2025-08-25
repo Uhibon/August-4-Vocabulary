@@ -2,199 +2,224 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Flip Slideshow (01–22)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Flip Card Slideshow</title>
 <style>
-  :root{ --ring:rgba(0,120,255,.45); --muted:#666; }
+  :root { --card-max-w: 90vw; --card-max-h: 90vh; }
 
-  *{ box-sizing:border-box }
-  html,body{ height:100% }
-  body{
-    margin:0; background:#ffffff; color:#111;
-    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial;
-    display:grid; grid-template-rows:auto 1fr auto; gap:12px;
+  body {
+    margin: 0;
+    font-family: sans-serif;
+    background: url('forest-background.jpg') center center / cover no-repeat fixed;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    touch-action: pan-y;
   }
 
-  /* LOWERED flip button row (no top arrows) */
-  .controls{
-    display:flex; align-items:center; justify-content:center; gap:12px;
-    margin-top:18px; padding:8px 12px;
-  }
-  .progress{ font-size:14px; color:var(--muted) }
-
-  .stage{ display:grid; place-items:center; padding:12px }
-  .frame{
-    position:relative; width:min(94vw,920px);
-    aspect-ratio:3/4; /* JS will update to image ratio to avoid cropping */
-    background:#fafafa;
-    border:1px solid #e5e5e5; border-radius:16px;
-    box-shadow:0 8px 24px rgba(0,0,0,.08);
-    overflow:hidden;
+  .slideshow-wrap {
+    position: relative;
+    width: min(900px, var(--card-max-w));
+    max-height: var(--card-max-h);
+    background: rgba(255,255,255,.9);
+    border-radius: 16px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.2);
+    padding: 56px 16px 16px; /* top room for the button */
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
-  /* Flip card */
-  .card{ position:absolute; inset:0; transform-style:preserve-3d; transition:transform .5s ease }
-  .card.no-anim{ transition:none!important }
-  .card.flipped{ transform:rotateY(180deg) }
-
-  .face{
-    position:absolute; inset:0; display:grid; place-items:center;
-    backface-visibility:hidden; -webkit-backface-visibility:hidden;
-    background:#fff;
+  /* Flip button */
+  .top-bar {
+    position: absolute;
+    inset: 8px 12px auto 12px;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    z-index: 5;
   }
-  .back{ transform:rotateY(180deg) }
-  .face img{
-    max-width:100%; max-height:100%;
-    width:auto; height:auto; object-fit:contain; background:#fff;
+  .btn {
+    appearance: none;
+    border: 0;
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: #111;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,.2);
   }
+  .btn:active { transform: translateY(1px); }
 
-  /* ON-CARD nav buttons */
-  .nav{
-    position:absolute; top:50%; transform:translateY(-50%);
-    width:48px; height:48px; display:grid; place-items:center;
-    border:none; border-radius:999px; cursor:pointer;
-    background:rgba(0,0,0,.62); color:#fff; font-weight:700;
-    box-shadow:0 2px 10px rgba(0,0,0,.25);
-    z-index:10;            /* over the card */
-    pointer-events:auto;   /* explicit */
+  /* Prev / Next */
+  .nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 12px 14px;
+    background: rgba(0,0,0,.5);
+    color: #fff;
+    font-size: 24px;
+    font-weight: 700;
+    border-radius: 10px;
+    cursor: pointer;
+    user-select: none;
+    z-index: 4;
   }
-  .nav:hover{ background:rgba(0,0,0,.75) }
-  .prev{ left:10px } .next{ right:10px }
+  .nav.prev { left: 8px; }
+  .nav.next { right: 8px; }
 
-  /* Buttons */
-  button{
-    appearance:none; border:1px solid #d0d0d0; cursor:pointer;
-    background:#0b65d8; color:#fff; font-weight:700;
-    padding:10px 14px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.12);
+  /* Slide & flip card */
+  .slide { display: none; }
+  .slide.active { display: block; }
+
+  .card {
+    margin: 0 auto;
+    width: 100%;
+    max-width: 900px;
+    aspect-ratio: 3 / 2; /* keeps stable height; adjust as needed */
+    perspective: 1200px;
   }
-  button:focus-visible{ outline:3px solid var(--ring); outline-offset:2px }
+  .card-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+    transition: transform 400ms ease;
+    will-change: transform;
+  }
+  .card.flipped .card-inner { transform: rotateY(180deg); }
 
-  .footer{ text-align:center; color:#777; font-size:13px; padding:6px 12px 16px }
+  .face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: #fff;
+    border-radius: 12px;
+  }
+  .face img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #fff;
+  }
+  .back { transform: rotateY(180deg); }
 </style>
 </head>
 <body>
 
-<!-- LOWER flip button (no top arrow buttons) -->
-<div class="controls">
-  <button id="flipBtn" title="Flip (Space/F)">Flip</button>
-  <div class="progress" id="progressText" aria-live="polite"></div>
+<div class="slideshow-wrap" id="wrap">
+  <div class="top-bar">
+    <button id="flipBtn" class="btn">Flip</button>
+  </div>
+
+  <!-- Slides container -->
+  <div id="slides"></div>
+
+  <!-- Navigation -->
+  <div class="nav prev" id="prevBtn" aria-label="Previous">❮</div>
+  <div class="nav next" id="nextBtn" aria-label="Next">❯</div>
 </div>
 
-<main class="stage">
-  <div class="frame" id="frame">
-    <div class="card" id="card">
-      <div class="face front"><img id="frontImg" alt="Front"></div>
-      <div class="face back"><img id="backImg" alt="Back"></div>
-    </div>
-    <!-- ONLY these nav buttons remain, on the card -->
-    <button type="button" class="nav prev" id="prevBtn" aria-label="Previous">◀</button>
-    <button type="button" class="nav next" id="nextBtn" aria-label="Next">▶</button>
-  </div>
-</main>
-
-<div class="footer">Left/Right = change • Space/F or click card = flip • Swipe on mobile</div>
-
 <script>
-  // --- CONFIG ---
-  const TOTAL_IMAGES = 22;                 // 01.jpg … 22.jpg
-  const TOTAL_CARDS  = Math.floor(TOTAL_IMAGES / 2);
+  // === CONFIG ===
+  // We have 22 images: 01.jpg … 22.jpg
+  const TOTAL_IMAGES = 22;
 
-  // --- STATE ---
-  let cardIndex = 0;                       // 0..TOTAL_CARDS-1
-  let flipped   = false;
-
-  // --- Elements ---
-  const frame = document.getElementById('frame');
-  const card  = document.getElementById('card');
-  const frontImg = document.getElementById('frontImg');
-  const backImg  = document.getElementById('backImg');
-  const progressText = document.getElementById('progressText');
-  const flipBtn = document.getElementById('flipBtn');
-  const prevBtn = document.getElementById('prevBtn');
-  const nextBtn = document.getElementById('nextBtn');
-
-  // --- Helpers ---
-  const pad2   = n => String(n).padStart(2,'0');
-  const fileOf = n => `./${pad2(n)}.jpg`;  // explicit relative path
-  function imagesFor(i){ const f=i*2+1; return { frontN:f, backN:Math.min(f+1,TOTAL_IMAGES) }; }
-
-  // Fit frame to current image to avoid cropping
-  function setAspectFrom(img){
-    const apply = ()=>{
-      const w = img.naturalWidth||0, h = img.naturalHeight||0;
-      if (w && h) frame.style.aspectRatio = `${w} / ${h}`;
-    };
-    if (img.complete && img.naturalWidth) apply(); else img.addEventListener('load', apply, {once:true});
+  // Build pairs: (01,02), (03,04), ...
+  const pairs = [];
+  for (let i = 1; i <= TOTAL_IMAGES; i += 2) {
+    const frontNum = String(i).padStart(2, '0');
+    const backNum  = String(i + 1).padStart(2, '0');
+    const hasBack = (i + 1) <= TOTAL_IMAGES;
+    pairs.push({
+      front: `${frontNum}.jpg`,
+      back:  hasBack ? `${backNum}.jpg` : `${frontNum}.jpg`
+    });
   }
 
-  // Preload neighbors
-  function preloadAround(n){
-    for (let k=n-4; k<=n+6; k++){
-      if (k<1 || k>TOTAL_IMAGES) continue;
-      new Image().src = fileOf(k);
+  const slidesEl = document.getElementById('slides');
+
+  // Create slides
+  pairs.forEach((p, idx) => {
+    const slide = document.createElement('div');
+    slide.className = 'slide' + (idx === 0 ? ' active' : '');
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.flipped = 'false';
+
+    const inner = document.createElement('div');
+    inner.className = 'card-inner';
+
+    const front = document.createElement('div');
+    front.className = 'face front';
+    front.innerHTML = `<img src="${p.front}" alt="Front ${idx+1}">`;
+
+    const back = document.createElement('div');
+    back.className = 'face back';
+    back.innerHTML = `<img src="${p.back}" alt="Back ${idx+1}">`;
+
+    inner.appendChild(front);
+    inner.appendChild(back);
+    card.appendChild(inner);
+    slide.appendChild(card);
+    slidesEl.appendChild(slide);
+  });
+
+  let slideIndex = 0;
+  const slideNodes = () => Array.from(document.querySelectorAll('.slide'));
+
+  function showSlide(i) {
+    const slides = slideNodes();
+    slides.forEach(s => s.classList.remove('active'));
+    slideIndex = (i + slides.length) % slides.length;
+    slides[slideIndex].classList.add('active');
+
+    // reset flip on new slide
+    const card = slides[slideIndex].querySelector('.card');
+    card.classList.remove('flipped');
+    card.dataset.flipped = 'false';
+  }
+
+  function flipCurrent() {
+    const slide = slideNodes()[slideIndex];
+    const card = slide.querySelector('.card');
+    const isFlipped = card.dataset.flipped === 'true';
+    card.dataset.flipped = String(!isFlipped);
+    card.classList.toggle('flipped', !isFlipped);
+  }
+
+  // Buttons
+  document.getElementById('flipBtn').addEventListener('click', flipCurrent);
+  document.getElementById('prevBtn').addEventListener('click', () => showSlide(slideIndex - 1));
+  document.getElementById('nextBtn').addEventListener('click', () => showSlide(slideIndex + 1));
+
+  // Swipe
+  const wrap = document.getElementById('wrap');
+  let startX = 0;
+  wrap.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, {passive:true});
+  wrap.addEventListener('touchend', e => {
+    const endX = e.changedTouches[0].clientX;
+    const dx = endX - startX;
+    if (Math.abs(dx) > 50) {
+      if (dx < 0) showSlide(slideIndex + 1);
+      else showSlide(slideIndex - 1);
     }
-  }
-
-  function render(){
-    const { frontN, backN } = imagesFor(cardIndex);
-    frontImg.src = fileOf(frontN);
-    backImg.src  = fileOf(backN);
-    setAspectFrom(frontImg);
-    card.classList.toggle('flipped', flipped);
-    progressText.textContent = `Card ${cardIndex+1} / ${TOTAL_CARDS} • ${flipped?'Back':'Front'} (${pad2(flipped?backN:frontN)}.jpg)`;
-    preloadAround(frontN);
-  }
-
-  function flip(){
-    flipped = !flipped;
-    card.classList.toggle('flipped', flipped);
-    const { frontN, backN } = imagesFor(cardIndex);
-    progressText.textContent = `Card ${cardIndex+1} / ${TOTAL_CARDS} • ${flipped?'Back':'Front'} (${pad2(flipped?backN:frontN)}.jpg)`;
-  }
-
-  function goto(dir){
-    const next = cardIndex + dir;
-    if (next < 0 || next >= TOTAL_CARDS) return;
-    cardIndex = next; flipped = false;
-    // instant reset (no waiting for flip anim)
-    card.classList.add('no-anim'); card.classList.remove('flipped'); void card.offsetHeight;
-    render(); requestAnimationFrame(()=> card.classList.remove('no-anim'));
-  }
-
-  // --- Events ---
-  flipBtn.addEventListener('click', e => { e.stopPropagation(); flip(); });
-
-  // Make nav clicks win over card click-to-flip
-  prevBtn.addEventListener('click', e => { e.stopPropagation(); goto(-1); });
-  nextBtn.addEventListener('click', e => { e.stopPropagation(); goto(+1); });
-
-  // Click card = flip (unless clicking a nav button)
-  frame.addEventListener('click', e => {
-    if (e.target.closest('.nav') || e.target.closest('#flipBtn')) return;
-    flip();
   });
 
   // Keyboard
-  window.addEventListener('keydown', e => {
-    if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
-    if (e.key === 'ArrowRight') goto(+1);
-    else if (e.key === 'ArrowLeft') goto(-1);
-    else if (e.code === 'Space' || (e.key && e.key.toLowerCase()==='f')) { e.preventDefault(); flip(); }
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') showSlide(slideIndex + 1);
+    if (e.key === 'ArrowLeft')  showSlide(slideIndex - 1);
+    if (e.key.toLowerCase() === 'f' || e.key === ' ') flipCurrent();
   });
 
-  // Swipe (pointer)
-  let sx=0, sy=0, moved=false;
-  frame.addEventListener('pointerdown', e => { sx=e.clientX; sy=e.clientY; moved=false; frame.setPointerCapture(e.pointerId); });
-  frame.addEventListener('pointermove', e => { if (Math.abs(e.clientX-sx)>6 || Math.abs(e.clientY-sy)>6) moved=true; });
-  frame.addEventListener('pointerup', e => {
-    const dx=e.clientX-sx, dy=e.clientY-sy;
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) goto(dx<0 ? +1 : -1);
-    else if (!moved) flip();
-    frame.releasePointerCapture(e.pointerId);
-  });
-
-  // Init
-  render();
+  // Start
+  showSlide(0);
 </script>
 </body>
 </html>
